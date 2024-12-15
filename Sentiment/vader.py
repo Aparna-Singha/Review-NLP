@@ -1,46 +1,29 @@
-from fastapi import FastAPI
-from language_tool_python import LanguageTool
+from fastapi import FastAPI, HTTPException
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
+# Initialize FastAPI app and Sentiment Analyzer
 app = FastAPI()
-tool = LanguageTool("en-US")
+analyzer = SentimentIntensityAnalyzer()
 
-def calculate_severity(matches):
-    severity = 0
-    for match in matches:
-        if "punctuation" in match.ruleId.lower():
-            severity += 1 
-        elif "spelling" in match.ruleId.lower():
-            severity += 0.7 
-        else:
-            severity += 0.5 
+# Function to get sentiment score
+def get_sentiment_score(text: str):
+    try:
+        # Get sentiment scores
+        sentiment = analyzer.polarity_scores(text)
+        
+        # Extract the compound score, which is the most useful for overall sentiment
+        compound_score = sentiment['compound']
+        
+        # Convert the compound score from [-1, 1] to [0, 1]
+        # This scales -1 -> 0 and 1 -> 1, with values in between mapped linearly
+        normalized_score = (compound_score + 1) / 2
 
-    return severity
+        return round(normalized_score, 2)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing text: {e}")
 
-@app.get("/grammar")
-def grammar_score(sentence: str):
-    matches = tool.check(sentence)
-
-    # Count of errors in the sentence
-    error_count = len(matches)
-    
-    # Function to calculate severity of the errors (example placeholder logic)
-    severity = calculate_severity(matches) 
-
-    # Calculate the base score (errors/maximum errors)
-    max_errors = 30 
-    base_score = max(0, 1 - (error_count / max_errors))  # Ensures score is not negative
-
-    # Penalty based on error severity (adjusting for severity)
-    severity_penalty = min(1, severity / 10) 
-
-    # Sentence length factor (ensuring we do not penalize excessively long sentences)
-    sentence_length = len(sentence.split())
-    max_length = 50
-    length_factor = min(1, sentence_length / max_length)
-
-    # Calculate final score combining the base score, severity, and length factor
-    score = base_score - severity_penalty
-    score = score * length_factor  # Apply length factor to final score
-
-    # Ensure the final score is clamped between 0 and 1
-    return round(max(0, min(1, score)), 2)  # Ensures the score stays between 0 and 1
+# FastAPI endpoint to process text and return sentiment score
+@app.get("/sentiment")
+def analyze_sentiment(text: str):
+    score = get_sentiment_score(text)
+    return score
